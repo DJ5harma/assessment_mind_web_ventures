@@ -2,9 +2,30 @@ import React, { useState, useEffect } from "react";
 import { Polygon, Tooltip } from "react-leaflet";
 import { fetchTemperature } from "../utils/openMeteo";
 import { useDashboard } from "../context/DashboardContext";
+import { LatLngExpression } from "leaflet";
 
-interface PolygonWithTooltipProps {
-	poly: any;
+// interface PolygonWithTooltipProps {
+// 	poly: {
+// 		id: string;
+// 		name: string;
+// 		dataSource: string;
+// 		colorRule?: { op: string; value: number; color?: string }[];
+// 		points?: [];
+// 	};
+// 	centroid: [number, number];
+// }
+export interface PolygonWithTooltipProps {
+	poly: {
+		id: string;
+		name: string;
+		points: [number, number][];
+		dataSource: string;
+		colorRule: {
+			op: string;
+			value: number;
+			color: string;
+		}[];
+	};
 	centroid: [number, number];
 }
 
@@ -31,7 +52,9 @@ const PolygonWithTooltip: React.FC<PolygonWithTooltipProps> = ({
 				}
 				setTemp(value);
 				let ruleColor = "gray";
+				if (!poly || !poly.colorRule) return;
 				for (const rule of poly.colorRule) {
+					if (!rule || !rule.value || !rule.color) continue;
 					if (
 						(rule.op === "<" && value < rule.value) ||
 						(rule.op === "<=" && value <= rule.value) ||
@@ -54,7 +77,7 @@ const PolygonWithTooltip: React.FC<PolygonWithTooltipProps> = ({
 	return (
 		<>
 			<Polygon
-				positions={poly.points}
+				positions={poly.points as LatLngExpression[]}
 				pathOptions={{ color, fillColor: color, fillOpacity: 0.5 }}
 			>
 				{temp !== null && (

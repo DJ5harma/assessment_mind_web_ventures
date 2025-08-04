@@ -1,8 +1,30 @@
 import React, { useState } from "react";
-import { MapContainer, TileLayer, Polygon, useMapEvents } from "react-leaflet";
+import {
+	MapContainer,
+	TileLayer,
+	Polygon,
+	useMapEvents,
+	MapContainerProps,
+} from "react-leaflet";
 import "leaflet/dist/leaflet.css";
 import { useDashboard } from "../context/DashboardContext";
 import PolygonWithTooltip from "./PolygonWithTooltip";
+import type { LeafletMouseEvent, Map as LeafletMapInstance } from "leaflet";
+
+// --- Types ---
+type ColorRule = {
+	op: string;
+	value: number;
+	color: string;
+};
+
+export type PolygonType = {
+	id: string;
+	name: string;
+	points: [number, number][];
+	dataSource: string;
+	colorRule: ColorRule[];
+};
 
 interface DrawingPolygonProps {
 	drawing: boolean;
@@ -13,20 +35,19 @@ const DrawingPolygon: React.FC<DrawingPolygonProps> = ({
 	drawing,
 	setDrawing,
 }) => {
-	const { polygons, setPolygons } = useDashboard();
+	const { polygons, setPolygons } = useDashboard() as {
+		polygons: PolygonType[];
+		setPolygons: React.Dispatch<React.SetStateAction<PolygonType[]>>;
+	};
+
 	const [points, setPoints] = useState<[number, number][]>([]);
-	const [setMap] = useState<any>(null);
 
 	useMapEvents({
-		click(e: { latlng: { lat: number; lng: number } }) {
+		click(e: LeafletMouseEvent) {
 			if (!drawing) return;
 			if (points.length < 12) {
-				setPoints([...points, [e.latlng.lat, e.latlng.lng]]);
+				setPoints((prev) => [...prev, [e.latlng.lat, e.latlng.lng]]);
 			}
-		},
-		// No double click to complete
-		load(e: { target: unknown }) {
-			setMap(e.target);
 		},
 	});
 
@@ -35,20 +56,18 @@ const DrawingPolygon: React.FC<DrawingPolygonProps> = ({
 			const name =
 				prompt("Polygon name?", `Polygon ${polygons.length + 1}`) ||
 				`Polygon ${polygons.length + 1}`;
-			setPolygons([
-				...polygons,
-				{
-					id: Date.now().toString(),
-					name,
-					points,
-					dataSource: "open-meteo",
-					colorRule: [
-						{ op: "<", value: 19, color: "red" },
-						{ op: "<", value: 25, color: "blue" },
-						{ op: ">=", value: 25, color: "green" },
-					],
-				},
-			]);
+			const newPolygon: PolygonType = {
+				id: Date.now().toString(),
+				name,
+				points,
+				dataSource: "open-meteo",
+				colorRule: [
+					{ op: "<", value: 19, color: "red" },
+					{ op: "<", value: 25, color: "blue" },
+					{ op: ">=", value: 25, color: "green" },
+				],
+			};
+			setPolygons((prev) => [...prev, newPolygon]);
 			setPoints([]);
 			setDrawing(false);
 		}
@@ -62,7 +81,6 @@ const DrawingPolygon: React.FC<DrawingPolygonProps> = ({
 					pathOptions={{ color: "#22d3ee", dashArray: "6", fillOpacity: 0.1 }}
 				/>
 			)}
-			{/* Glowing points */}
 			{points.map((pt, idx) => (
 				<div
 					key={idx}
@@ -93,26 +111,43 @@ const DrawingPolygon: React.FC<DrawingPolygonProps> = ({
 };
 
 const Map: React.FC = () => {
-	const { polygons, setPolygons } = useDashboard();
-	const [drawing, setDrawing] = useState(false);
-	const [mapRef, setMapRef] = useState<any>(null);
+	const { polygons } = useDashboard() as {
+		polygons: PolygonType[];
+		setPolygons: React.Dispatch<React.SetStateAction<PolygonType[]>>;
+	};
 
-	// Handler to reset map center
+	const [drawing, setDrawing] = useState(false);
+	const [mapRef, setMapRef] = useState<LeafletMapInstance | null>(null);
+
 	const resetCenter = () => {
 		if (mapRef) {
 			mapRef.setView([52.52, 13.41], 15);
 		}
 	};
 
+	// Explicitly define the whenReady handler
+	const handleMapReady: MapContainerProps["whenReady"] = () => {
+		// Delay access via setTimeout to ensure target is available
+		setTimeout(() => {
+			const container = document.querySelector(
+				".leaflet-container"
+			) as HTMLElement & {
+				_leaflet_map?: LeafletMapInstance;
+			};
+
+			if (container?._leaflet_map) {
+				setMapRef(container._leaflet_map);
+			}
+		}, 0);
+	};
+
 	return (
 		<div className="h-full w-full relative">
 			<button
-				className={`absolute z-[1000] top-4 left-4 px-4 py-2 rounded bg-blue-600 text-white ${
-					drawing ? "bg-red-600" : ""
+				className={`absolute z-[1000] top-4 left-4 px-4 py-2 rounded text-white ${
+					drawing ? "bg-red-600" : "bg-blue-600"
 				}`}
-				onClick={() => {
-					setDrawing(!drawing);
-				}}
+				onClick={() => setDrawing((prev) => !prev)}
 			>
 				{drawing ? "Cancel Drawing" : "Draw Polygon"}
 			</button>
@@ -132,7 +167,7 @@ const Map: React.FC = () => {
 				zoomControl={false}
 				minZoom={15}
 				maxZoom={15}
-				whenReady={setMapRef as () => void}
+				whenReady={handleMapReady}
 			>
 				<TileLayer
 					attribution='&copy; <a href="http://osm.org/copyright">OpenStreetMap</a> contributors'
@@ -140,8 +175,7 @@ const Map: React.FC = () => {
 				/>
 				<DrawingPolygon drawing={drawing} setDrawing={setDrawing} />
 				{polygons.map((poly) => {
-					// Calculate centroid
-					const centroid = poly.points.reduce(
+					const centroid: [number, number] = poly.points.reduce(
 						(acc, p) => [
 							acc[0] + p[0] / poly.points.length,
 							acc[1] + p[1] / poly.points.length,
@@ -149,7 +183,7 @@ const Map: React.FC = () => {
 						[0, 0]
 					);
 					return (
-						<PolygonWithTooltip poly={poly} centroid={centroid} key={poly.id} />
+						<PolygonWithTooltip key={poly.id} poly={poly} centroid={centroid} />
 					);
 				})}
 			</MapContainer>
